@@ -65,8 +65,8 @@ See each driver's README for detailed instructions.
 If you only need one or a few drivers, use Git sparse-checkout to avoid downloading the entire repository:
 
 ```bash
-git clone --filter=blob:none --no-checkout https://github.com/hphuc15/bare-drivers
-cd bare-drivers
+git clone --filter=blob:none --no-checkout https://github.com/hphuc15/bare_drivers
+cd bare_drivers
 git sparse-checkout init --cone
 
 # Single driver
