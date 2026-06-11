@@ -345,8 +345,7 @@ static SPS30_Status _sps30_i2c_read_data(SPS30_Dev *dev, uint16_t ptr, size_t ra
 
 static float _sps30_bytes_to_float(const uint8_t b[4])
 {
-    uint32_t u = ((uint32_t)b[0] << 24u) | ((uint32_t)b[1] << 16u)
-               | ((uint32_t)b[2] <<  8u) |  (uint32_t)b[3];
+    uint32_t u = ((uint32_t)b[0] << 24u) | ((uint32_t)b[1] << 16u) | ((uint32_t)b[2] << 8u) | (uint32_t)b[3];
     float f;
     memcpy(&f, &u, sizeof(f));
     return f;
@@ -438,8 +437,7 @@ SPS30_Status SPS30_StartMeasurement(SPS30_Dev *dev)
 
     if (dev->protocol == SPS30_PROTOCOL_UART) {
         uint8_t payload[2] = { 0x01u, (uint8_t)dev->fmt };
-        /* No post-delay needed: sensor ACKs then immediately starts sampling */
-        s = _sps30_uart_transact(dev, SPS30_SHDLC_CMD_START_MEAS, payload, 2u, NULL, 0u, NULL, SPS30_T_RESPONSE_MS);
+        s = _sps30_uart_transact_delayed(dev, SPS30_SHDLC_CMD_START_MEAS, payload, 2u, NULL, 0u, NULL, SPS30_T_RESPONSE_MS, SPS30_T_FIRST_MEAS_MS);
     } else {
         uint8_t words[2] = { (uint8_t)dev->fmt, 0x00u };
         uint8_t buf[5];
@@ -448,8 +446,7 @@ SPS30_Status SPS30_StartMeasurement(SPS30_Dev *dev)
         buf[2] = words[0];
         buf[3] = words[1];
         buf[4] = _sps30_i2c_crc8(words);
-        s = (dev->hal.i2c.write(SPS30_I2C_ADDR, buf, 5u) == 0)
-            ? SPS30_OK : SPS30_ERR_IO;
+        s = (dev->hal.i2c.write(SPS30_I2C_ADDR, buf, 5u) == 0) ? SPS30_OK : SPS30_ERR_IO;
         dev->hal.i2c.delay_ms(SPS30_T_RESPONSE_MS);
     }
 

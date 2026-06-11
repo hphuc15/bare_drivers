@@ -54,15 +54,15 @@
  * Timing (ms)
  * Datasheet §1.1 / Table 7
  * ------------------------------------------------------------------------- */
+
+/** First measurement delay */
+#define SPS30_T_FIRST_MEAS_MS       1000u
+
 /** Max SHDLC response time for most commands (datasheet: ≤20 ms). */
 #define SPS30_T_RESPONSE_MS         20u
 
-/**
- * Timeout for read_measurement UART responses.
- * The sensor produces a new value every ~1 s; allow generous margin for
- * the UART round-trip when polling at a slower rate.
- */
-#define SPS30_T_READ_MEAS_MS        500u
+/** Timeout for read_measurement UART responses. */
+#define SPS30_T_READ_MEAS_MS        20u
 
 /** Time to enter / leave Sleep-Mode (datasheet: ≤5 ms). */
 #define SPS30_T_SLEEP_WAKEUP_MS     5u
