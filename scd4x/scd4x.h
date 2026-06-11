@@ -72,7 +72,7 @@ typedef struct {
     uint16_t co2_ppm;
     float temperature_c;
     float humidity_rh;
-} SCD4x_Measurement;
+} SCD4x_Data;
 
 typedef struct SCD4x_Dev {
     uint8_t i2c_addr;              /* 7-bit I2C address: SCD4X_I2C_ADDR */
@@ -104,7 +104,7 @@ SCD4x_Status SCD4x_StartMeasurement(SCD4x_Dev *dev, SCD4x_Mode mode);
  * @param[out] out  Pointer to measurement output structure.
  * @return SCD4X_OK on success, error code otherwise.
  */
-SCD4x_Status SCD4x_ReadMeasurement(SCD4x_Dev *dev, SCD4x_Measurement *out);
+SCD4x_Status SCD4x_ReadMeasurement(SCD4x_Dev *dev, SCD4x_Data *out);
 /**
  * @brief Stop an ongoing periodic measurement.
  * No-op if mode is single-shot. Required before issuing configuration commands.

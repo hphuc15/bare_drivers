@@ -270,7 +270,7 @@ SCD4x_Status SCD4x_StartMeasurement(SCD4x_Dev *dev, SCD4x_Mode mode){
     return st;
 }
 
-SCD4x_Status SCD4x_ReadMeasurement(SCD4x_Dev *dev, SCD4x_Measurement *out){
+SCD4x_Status SCD4x_ReadMeasurement(SCD4x_Dev *dev, SCD4x_Data *out){
     if(!dev || !out){
         return SCD4X_ERR_PARAM;
     }

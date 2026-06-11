@@ -1,4 +1,5 @@
 .vscode
-tests/
-docs/
-examples/
+/tests/
+/docs/
+/examples/
+*/tests/
