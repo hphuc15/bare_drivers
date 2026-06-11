@@ -71,16 +71,11 @@ static size_t _sps30_stuff_byte(uint8_t byte, uint8_t *out)
 static uint8_t _sps30_unstuff_pair(uint8_t replacement)
 {
     switch (replacement) {
-        case STUFF_7E_REPL:
-            return STUFF_7E_ORIG;
-        case STUFF_7D_REPL:
-            return STUFF_ESC;
-        case STUFF_11_REPL:
-            return STUFF_11_ORIG;
-        case STUFF_13_REPL:
-            return STUFF_13_ORIG;
-        default:
-            return 0xFFu;
+        case STUFF_7E_REPL: return STUFF_7E_ORIG;
+        case STUFF_7D_REPL: return STUFF_ESC;
+        case STUFF_11_REPL: return STUFF_11_ORIG;
+        case STUFF_13_REPL: return STUFF_13_ORIG;
+        default:            return 0xFFu;
     }
 }
 
@@ -98,7 +93,6 @@ static SPS30_Status _sps30_shdlc_build_frame(uint8_t cmd, const uint8_t *tx_data
         return SPS30_ERR_BUF_TOO_SMALL;
     }
 
-    /* Un-stuffed content: ADR CMD LEN DATA... CHK */
     uint8_t raw[4u + SPS30_SHDLC_MAX_DATA_LEN + 1u];
     raw[0] = SHDLC_SLAVE_ADDR;
     raw[1] = cmd;
@@ -108,9 +102,8 @@ static SPS30_Status _sps30_shdlc_build_frame(uint8_t cmd, const uint8_t *tx_data
     }
     size_t content_len = 3u + (size_t)tx_len;
     raw[content_len] = _sps30_shdlc_checksum(raw, content_len);
-    content_len++;  /* now includes CHK */
+    content_len++;
 
-    /* Wrap with delimiters and apply stuffing */
     size_t pos = 0u;
     out[pos++] = SHDLC_START_STOP;
     for (size_t i = 0u; i < content_len; i++) {
@@ -135,7 +128,6 @@ static SPS30_Status _sps30_shdlc_build_frame(uint8_t cmd, const uint8_t *tx_data
  */
 static SPS30_Status _sps30_shdlc_parse_frame(const uint8_t *frame, size_t frame_len, uint8_t *rx_data, size_t rx_max, uint8_t *rx_len)
 {
-    /* Minimum: START ADR CMD STATE LEN CHK STOP = 7 bytes */
     if (frame_len < 7u) {
         return SPS30_ERR_DATA_LEN;
     }
@@ -143,7 +135,6 @@ static SPS30_Status _sps30_shdlc_parse_frame(const uint8_t *frame, size_t frame_
         return SPS30_ERR_CRC;
     }
 
-    /* De-stuff everything between START and STOP */
     uint8_t unstuffed[4u + SPS30_SHDLC_MAX_DATA_LEN + 1u];
     size_t  ulen   = 0u;
     bool    in_esc = false;
@@ -160,18 +151,15 @@ static SPS30_Status _sps30_shdlc_parse_frame(const uint8_t *frame, size_t frame_
         }
     }
 
-    /* Minimum un-stuffed: ADR CMD STATE LEN CHK = 5 bytes */
     if (ulen < 5u) {
         return SPS30_ERR_DATA_LEN;
     }
 
-    /* Checksum covers everything but CHK */
     uint8_t expected_chk = _sps30_shdlc_checksum(unstuffed, ulen - 1u);
     if (expected_chk != unstuffed[ulen - 1u]) {
         return SPS30_ERR_CRC;
     }
 
-    /* State byte (index 2): bits 6..0 = execution error code */
     uint8_t exec_err = unstuffed[2] & 0x7Fu;
     if (exec_err != 0u) {
         switch (exec_err) {
@@ -183,10 +171,7 @@ static SPS30_Status _sps30_shdlc_parse_frame(const uint8_t *frame, size_t frame_
         }
     }
 
-    /* unstuffed[3] = LEN, unstuffed[4..4+LEN-1] = payload */
     uint8_t data_len = unstuffed[3];
-
-    /* Sanity: total length must equal ADR+CMD+STATE+LEN+data+CHK */
     if ((size_t)data_len + 5u != ulen) {
         return SPS30_ERR_DATA_LEN;
     }
@@ -210,8 +195,7 @@ static SPS30_Status _sps30_shdlc_parse_frame(const uint8_t *frame, size_t frame_
 
 /*
  * Send a SHDLC command and read back the response frame over UART.
- * Reads byte-by-byte until STOP (0x7E) or buffer full; timeout_ms applies
- * per byte (use SPS30_T_READ_MEAS_MS for measurement reads).
+ * timeout_ms: per-byte read timeout while waiting for the response frame.
  */
 static SPS30_Status _sps30_uart_transact(SPS30_Dev *dev, uint8_t cmd, const uint8_t *tx, uint8_t tx_len, uint8_t *rx, size_t rx_max, uint8_t *rx_len, uint32_t timeout_ms)
 {
@@ -223,8 +207,6 @@ static SPS30_Status _sps30_uart_transact(SPS30_Dev *dev, uint8_t cmd, const uint
         return s;
     }
 
-    /* Flush stale RX bytes from a previous transaction so a leftover
-     * frame isn't parsed as the reply to this command. */
     if (dev->hal.uart.flush_rx != NULL) {
         dev->hal.uart.flush_rx();
     }
@@ -233,7 +215,6 @@ static SPS30_Status _sps30_uart_transact(SPS30_Dev *dev, uint8_t cmd, const uint
         return SPS30_ERR_IO;
     }
 
-    /* Read response byte-by-byte until STOP delimiter or buffer full */
     uint8_t resp[SPS30_SHDLC_MAX_FRAME_LEN];
     size_t  rpos    = 0u;
     bool    started = false;
@@ -241,7 +222,6 @@ static SPS30_Status _sps30_uart_transact(SPS30_Dev *dev, uint8_t cmd, const uint
     while (rpos < SPS30_SHDLC_MAX_FRAME_LEN) {
         uint8_t b;
         if (dev->hal.uart.read(&b, 1u, timeout_ms) != 0) {
-            /* Timeout/IO error before START -> report timeout */
             return started ? SPS30_ERR_IO : SPS30_ERR_TIMEOUT;
         }
 
@@ -250,19 +230,37 @@ static SPS30_Status _sps30_uart_transact(SPS30_Dev *dev, uint8_t cmd, const uint
                 resp[rpos++] = b;
                 started = true;
             }
-            continue; /* discard stale bytes before START */
+            continue;
         }
 
         resp[rpos++] = b;
-
-        /* Bare 0x7E after START is always the STOP byte (a stuffed 0x7E
-         * appears as 0x7D 0x5E inside the frame) */
         if (b == SHDLC_START_STOP) {
             break;
         }
     }
 
     return _sps30_shdlc_parse_frame(resp, rpos, rx, rx_max, rx_len);
+}
+
+/*
+ * Wrapper around _sps30_uart_transact that applies a post-command delay.
+ *
+ * Use this for commands where the sensor needs time to complete an action
+ * AFTER acknowledging the command (reset, sleep/wake, fan cleaning, etc.).
+ *
+ * timeout_ms:     per-byte read timeout for the response frame.
+ * post_delay_ms:  time to wait after a successful transaction. Pass 0 to
+ *                 skip the delay (equivalent to calling _sps30_uart_transact
+ *                 directly).
+ */
+static SPS30_Status _sps30_uart_transact_delayed(SPS30_Dev *dev, uint8_t cmd, const uint8_t *tx, uint8_t tx_len, uint8_t *rx, 
+                                                size_t rx_max, uint8_t *rx_len, uint32_t timeout_ms, uint32_t post_delay_ms)
+{
+    SPS30_Status s = _sps30_uart_transact(dev, cmd, tx, tx_len, rx, rx_max, rx_len, timeout_ms);
+    if (s == SPS30_OK && post_delay_ms > 0u) {
+        dev->hal.uart.delay_ms(post_delay_ms);
+    }
+    return s;
 }
 
 /* =========================================================================
@@ -280,9 +278,19 @@ static SPS30_Status _sps30_i2c_set_pointer(SPS30_Dev *dev, uint16_t ptr)
 }
 
 /*
- * Set pointer then write data words, appending a CRC byte after each pair.
- * words[]/nwords are raw byte pairs (nwords must be even).
+ * Wrapper around _sps30_i2c_set_pointer that applies a post-command delay.
+ * Mirrors _sps30_uart_transact_delayed so both protocol paths have the same
+ * shape at the call site.
  */
+static SPS30_Status _sps30_i2c_set_pointer_delayed(SPS30_Dev *dev, uint16_t ptr, uint32_t post_delay_ms)
+{
+    SPS30_Status s = _sps30_i2c_set_pointer(dev, ptr);
+    if (s == SPS30_OK && post_delay_ms > 0u) {
+        dev->hal.i2c.delay_ms(post_delay_ms);
+    }
+    return s;
+}
+
 static SPS30_Status _sps30_i2c_write_data(SPS30_Dev *dev, uint16_t ptr, const uint8_t *words, size_t nwords)
 {
     /* 2 pointer bytes + up to 32 words x 3 bytes (data+crc) */
@@ -304,11 +312,6 @@ static SPS30_Status _sps30_i2c_write_data(SPS30_Dev *dev, uint16_t ptr, const ui
     return SPS30_OK;
 }
 
-/*
- * Set pointer then read raw_len bytes (groups of data0,data1,crc),
- * verify each CRC, and copy the 2 data bytes per group into out[].
- * raw_len must be a multiple of 3; out must hold raw_len*2/3 bytes.
- */
 static SPS30_Status _sps30_i2c_read_data(SPS30_Dev *dev, uint16_t ptr, size_t raw_len, uint8_t *out, size_t out_len)
 {
     SPS30_Status s = _sps30_i2c_set_pointer(dev, ptr);
@@ -340,22 +343,20 @@ static SPS30_Status _sps30_i2c_read_data(SPS30_Dev *dev, uint16_t ptr, size_t ra
  * Private helpers - measurement data parsing
  * ========================================================================= */
 
-/* Big-endian bytes -> float */
 static float _sps30_bytes_to_float(const uint8_t b[4])
 {
-    uint32_t u = ((uint32_t)b[0] << 24u) | ((uint32_t)b[1] << 16u) | ((uint32_t)b[2] << 8u) | (uint32_t)b[3];
+    uint32_t u = ((uint32_t)b[0] << 24u) | ((uint32_t)b[1] << 16u)
+               | ((uint32_t)b[2] <<  8u) |  (uint32_t)b[3];
     float f;
     memcpy(&f, &u, sizeof(f));
     return f;
 }
 
-/* Big-endian bytes -> uint16 */
 static uint16_t _sps30_bytes_to_u16(const uint8_t b[2])
 {
     return (uint16_t)(((uint16_t)b[0] << 8u) | b[1]);
 }
 
-/* Parse a 40-byte (float) or 20-byte (uint16) measurement payload */
 static SPS30_Status _sps30_parse_measurement(const uint8_t *buf, size_t len, SPS30_OutputFormat fmt, SPS30_Data *data)
 {
     if (fmt == SPS30_FORMAT_FLOAT) {
@@ -385,7 +386,6 @@ static SPS30_Status _sps30_parse_measurement(const uint8_t *buf, size_t len, SPS
         data->nc2_5        = (float)_sps30_bytes_to_u16(&buf[12u]);
         data->nc4_0        = (float)_sps30_bytes_to_u16(&buf[14u]);
         data->nc10         = (float)_sps30_bytes_to_u16(&buf[16u]);
-        /* typical_size is in nm for uint16 mode; convert to um */
         data->typical_size = (float)_sps30_bytes_to_u16(&buf[18u]) / 1000.0f;
     }
     return SPS30_OK;
@@ -419,7 +419,6 @@ SPS30_Status SPS30_Init(SPS30_Dev *dev)
             return SPS30_ERR_INVALID_ARGS;
     }
 
-    /* Force IDLE so init is safe even on a non-zero-initialised struct */
     dev->state = SPS30_STATE_IDLE;
     return SPS30_OK;
 }
@@ -438,11 +437,10 @@ SPS30_Status SPS30_StartMeasurement(SPS30_Dev *dev)
     SPS30_Status s;
 
     if (dev->protocol == SPS30_PROTOCOL_UART) {
-        /* sub-command 0x01 (output format select) + format byte */
         uint8_t payload[2] = { 0x01u, (uint8_t)dev->fmt };
+        /* No post-delay needed: sensor ACKs then immediately starts sampling */
         s = _sps30_uart_transact(dev, SPS30_SHDLC_CMD_START_MEAS, payload, 2u, NULL, 0u, NULL, SPS30_T_RESPONSE_MS);
     } else {
-        /* pointer (2B) + format word (2B) + CRC (1B) */
         uint8_t words[2] = { (uint8_t)dev->fmt, 0x00u };
         uint8_t buf[5];
         buf[0] = (uint8_t)(SPS30_I2C_CMD_PTR_START_MEAS >> 8u);
@@ -450,7 +448,8 @@ SPS30_Status SPS30_StartMeasurement(SPS30_Dev *dev)
         buf[2] = words[0];
         buf[3] = words[1];
         buf[4] = _sps30_i2c_crc8(words);
-        s = (dev->hal.i2c.write(SPS30_I2C_ADDR, buf, 5u) == 0) ? SPS30_OK : SPS30_ERR_IO;
+        s = (dev->hal.i2c.write(SPS30_I2C_ADDR, buf, 5u) == 0)
+            ? SPS30_OK : SPS30_ERR_IO;
         dev->hal.i2c.delay_ms(SPS30_T_RESPONSE_MS);
     }
 
@@ -502,19 +501,22 @@ SPS30_Status SPS30_ReadMeasurement(SPS30_Dev *dev, SPS30_Data *data)
     if (dev->protocol == SPS30_PROTOCOL_UART) {
         uint8_t rx[40];
         uint8_t rx_len = 0u;
-        /* Longer timeout: caller polls ~1s apart, sample may not be ready yet */
+        /*
+         * SPS30_T_READ_MEAS_MS is intentionally used as the per-byte
+         * timeout here (not a post-delay). The sensor may take up to 1s
+         * to produce a new sample; this gives the read enough time to
+         * receive the first byte of the response before timing out.
+         */
         s = _sps30_uart_transact(dev, SPS30_SHDLC_CMD_READ_MEAS, NULL, 0u, rx, sizeof(rx), &rx_len, SPS30_T_READ_MEAS_MS);
         if (s != SPS30_OK) {
             return s;
         }
-        /* Empty payload means no new data yet */
         if (rx_len == 0u) {
             return SPS30_ERR_NO_DATA;
         }
         return _sps30_parse_measurement(rx, rx_len, dev->fmt, data);
 
     } else {
-        /* Check Data-Ready Flag first */
         uint8_t flag_raw[3];
         s = _sps30_i2c_set_pointer(dev, SPS30_I2C_CMD_PTR_DATA_READY);
         if (s != SPS30_OK) {
@@ -533,7 +535,6 @@ SPS30_Status SPS30_ReadMeasurement(SPS30_Dev *dev, SPS30_Data *data)
             }
         }
 
-        /* float: 20 words x 3 raw bytes = 60; uint16: 10 words x 3 = 30 */
         size_t raw_len   = (dev->fmt == SPS30_FORMAT_FLOAT) ? 60u : 30u;
         size_t data_size = (dev->fmt == SPS30_FORMAT_FLOAT) ? 40u : 20u;
         uint8_t parsed[40];
@@ -560,10 +561,9 @@ SPS30_Status SPS30_Sleep(SPS30_Dev *dev)
     SPS30_Status s;
 
     if (dev->protocol == SPS30_PROTOCOL_UART) {
-        s = _sps30_uart_transact(dev, SPS30_SHDLC_CMD_SLEEP, NULL, 0u, NULL, 0u, NULL, SPS30_T_RESPONSE_MS);
+        s = _sps30_uart_transact_delayed(dev, SPS30_SHDLC_CMD_SLEEP, NULL, 0u, NULL, 0u, NULL, SPS30_T_RESPONSE_MS, SPS30_T_SLEEP_WAKEUP_MS);
     } else {
-        s = _sps30_i2c_set_pointer(dev, SPS30_I2C_CMD_PTR_SLEEP);
-        dev->hal.i2c.delay_ms(SPS30_T_SLEEP_WAKEUP_MS);
+        s = _sps30_i2c_set_pointer_delayed(dev, SPS30_I2C_CMD_PTR_SLEEP, SPS30_T_SLEEP_WAKEUP_MS);
     }
 
     if (s == SPS30_OK) {
@@ -586,20 +586,15 @@ SPS30_Status SPS30_WakeUp(SPS30_Dev *dev)
     SPS30_Status s;
 
     if (dev->protocol == SPS30_PROTOCOL_UART) {
-        /* Send 0xFF to re-enable UART, then Wake-Up within 100ms */
         uint8_t pulse = 0xFFu;
         if (dev->hal.uart.write(&pulse, 1u) != 0) {
             return SPS30_ERR_IO;
         }
-        s = _sps30_uart_transact(dev, SPS30_SHDLC_CMD_WAKEUP, NULL, 0u, NULL, 0u, NULL, SPS30_T_SLEEP_WAKEUP_MS);
+        s = _sps30_uart_transact_delayed(dev, SPS30_SHDLC_CMD_WAKEUP, NULL, 0u, NULL, 0u, NULL, SPS30_T_RESPONSE_MS, SPS30_T_SLEEP_WAKEUP_MS);
     } else {
-        /* Bare Start+Stop pulse to re-enable I2C, then Wake-Up pointer.
-         * Zero-length write may be unsupported; fall back to just the
-         * Wake-Up command if so. */
         (void)dev->hal.i2c.write(SPS30_I2C_ADDR, NULL, 0u);
         dev->hal.i2c.delay_ms(2u);
-        s = _sps30_i2c_set_pointer(dev, SPS30_I2C_CMD_PTR_WAKEUP);
-        dev->hal.i2c.delay_ms(SPS30_T_SLEEP_WAKEUP_MS);
+        s = _sps30_i2c_set_pointer_delayed(dev, SPS30_I2C_CMD_PTR_WAKEUP, SPS30_T_SLEEP_WAKEUP_MS);
     }
 
     if (s == SPS30_OK) {
@@ -620,11 +615,14 @@ SPS30_Status SPS30_StartFanCleaning(SPS30_Dev *dev)
     }
 
     if (dev->protocol == SPS30_PROTOCOL_UART) {
+        /*
+         * Fan cleaning runs in the background; no post-delay needed here.
+         * The sensor continues measuring and will indicate completion via
+         * the status register.
+         */
         return _sps30_uart_transact(dev, SPS30_SHDLC_CMD_FAN_CLEAN, NULL, 0u, NULL, 0u, NULL, SPS30_T_RESPONSE_MS);
     } else {
-        SPS30_Status s = _sps30_i2c_set_pointer(dev, SPS30_I2C_CMD_PTR_FAN_CLEAN);
-        dev->hal.i2c.delay_ms(SPS30_T_SLEEP_WAKEUP_MS);
-        return s;
+        return _sps30_i2c_set_pointer_delayed(dev, SPS30_I2C_CMD_PTR_FAN_CLEAN, SPS30_T_SLEEP_WAKEUP_MS);
     }
 }
 
@@ -803,13 +801,11 @@ SPS30_Status SPS30_ReadDeviceStatus(SPS30_Dev *dev, uint32_t *status, bool clear
         }
         memcpy(data, rx, 4u);
     } else {
-        /* 32-bit status = 2 words = 6 raw bytes */
         s = _sps30_i2c_read_data(dev, SPS30_I2C_CMD_PTR_READ_STATUS, 6u, data, sizeof(data));
         if (s != SPS30_OK) {
             return s;
         }
         if (clear) {
-            /* Best-effort clear; don't override the status read result */
             (void)_sps30_i2c_set_pointer(dev, SPS30_I2C_CMD_PTR_CLEAR_STATUS);
             dev->hal.i2c.delay_ms(SPS30_T_SLEEP_WAKEUP_MS);
         }
@@ -827,7 +823,6 @@ SPS30_Status SPS30_Reset(SPS30_Dev *dev)
         return SPS30_ERR_INVALID_ARGS;
     }
 
-    /* Wake up first if sleeping so the interface accepts commands */
     if (dev->state == SPS30_STATE_SLEEP) {
         SPS30_Status s = SPS30_WakeUp(dev);
         if (s != SPS30_OK) {
@@ -838,10 +833,9 @@ SPS30_Status SPS30_Reset(SPS30_Dev *dev)
     SPS30_Status s;
 
     if (dev->protocol == SPS30_PROTOCOL_UART) {
-        s = _sps30_uart_transact(dev, SPS30_SHDLC_CMD_RESET, NULL, 0u, NULL, 0u, NULL, SPS30_T_RESET_MS);
+        s = _sps30_uart_transact_delayed(dev, SPS30_SHDLC_CMD_RESET, NULL, 0u, NULL, 0u, NULL, SPS30_T_RESPONSE_MS, SPS30_T_RESET_MS);
     } else {
-        s = _sps30_i2c_set_pointer(dev, SPS30_I2C_CMD_PTR_RESET);
-        dev->hal.i2c.delay_ms(SPS30_T_RESET_MS);
+        s = _sps30_i2c_set_pointer_delayed(dev, SPS30_I2C_CMD_PTR_RESET, SPS30_T_RESET_MS);
     }
 
     if (s == SPS30_OK) {
